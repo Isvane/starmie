@@ -1,64 +1,52 @@
+import gleam/list
 import gleam/erlang/process.{type Subject}
 import gleam/io
 import gleam/otp/actor
 
 pub fn main() -> Nil {
-  let assert Ok(actor) =
+  let assert Ok(broker) =
     actor.new([]) |> actor.on_message(handle_message) |> actor.start
-  let subject = actor.data
+  let subject = broker.data
 
-  process.send(subject, Push("Starmie"))
-  process.send(subject, Push("Staryu"))
+  let sub_a = process.new_subject()
+  let sub_b = process.new_subject()
 
-  let res1 = process.call(subject, 10, Pop)
+  process.send(subject, Subscribe(sub_a))
+  process.send(subject, Subscribe(sub_b))
+
+  process.send(subject, Publish("Starmie"))
+
+  let res1 = process.receive(sub_a, 10)
 
   case res1 {
-    Ok(pokemon) -> io.println("Popped: " <> pokemon)
-    Error(Nil) -> io.println("Stack is empty")
+    Ok(msg) -> io.println("Received: " <> msg)
+    Error(Nil) -> io.println("Error receiving message.")
   }
-
-  let res2 = process.call(subject, 10, Pop)
-
-  case res2 {
-    Ok(pokemon) -> io.println("Popped: " <> pokemon)
-    Error(Nil) -> io.println("Stack is empty")
-  }
-
-  let assert Error(Nil) = process.call(subject, 10, Pop)
 
   process.send(subject, Shutdown)
 }
 
 pub type Message(element) {
   Shutdown
-  Push(push: element)
-  Pop(reply_with: Subject(Result(element, Nil)))
+  Subscribe(message: Subject(element))
+  Publish(value: element)
 }
 
 fn handle_message(
-  stack: List(e),
+  subscribers: List(Subject(e)),
   message: Message(e),
-) -> actor.Next(List(e), Message(e)) {
+) -> actor.Next(List(Subject(e)), Message(e)) {
   case message {
     Shutdown -> actor.stop()
-
-    Push(value) -> {
-      let state = [value, ..stack]
-      actor.continue(state)
+    Subscribe(client) -> {
+      let new_client = [client, ..subscribers]
+      actor.continue(new_client)
     }
-
-    Pop(client) -> {
-      case stack {
-        [] -> {
-          process.send(client, Error(Nil))
-          actor.continue([])
-        }
-
-        [first, ..rest] -> {
-          process.send(client, Ok(first))
-          actor.continue(rest)
-        }
-      }
+    Publish(value) -> {
+      list.each(subscribers, fn(subscriber) {
+        process.send(subscriber, value)
+      })
+      actor.continue(subscribers)
     }
   }
 }
