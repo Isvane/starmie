@@ -60,32 +60,35 @@ fn handle_message(
 ) -> actor.Next(dict.Dict(String, List(Subject(e))), Message(e)) {
   case message {
     Shutdown -> actor.stop()
+
     Subscribe(client, channel) -> {
-      let new_client =
+      let updated_subscribers =
         dict.upsert(subscribers, channel, fn(maybe_list) {
           case maybe_list {
             option.None -> [client]
-            option.Some(list) -> [client, ..list]
+            option.Some(existing_subs) -> [client, ..existing_subs]
           }
         })
-      actor.continue(new_client)
+      actor.continue(updated_subscribers)
     }
+
     Unsubscribe(client, channel) -> {
-      let x = dict.get(subscribers, channel)
-      case x {
+      let channel_subscribers = dict.get(subscribers, channel)
+      case channel_subscribers {
         Ok(sub_list) -> {
-          let y = list.filter(sub_list, fn(item) { item != client })
-          let new_subs = dict.insert(subscribers, channel, y)
-          actor.continue(new_subs)
+          let filtered_subs = list.filter(sub_list, fn(sub) { sub != client })
+          let updated_subscribers = dict.insert(subscribers, channel, filtered_subs)
+          actor.continue(updated_subscribers)
         }
         Error(_) -> actor.continue(subscribers)
       }
     }
+
     Publish(value, channel) -> {
-      let x = dict.get(subscribers, channel)
-      case x {
-        Ok(subscribers) ->
-          list.each(subscribers, fn(subscriber) {
+      let channel_subscribers = dict.get(subscribers, channel)
+      case channel_subscribers {
+        Ok(sub_list) ->
+          list.each(sub_list, fn(subscriber) {
             process.send(subscriber, value)
           })
         Error(_) -> Nil
