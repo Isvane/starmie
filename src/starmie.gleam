@@ -1,26 +1,38 @@
-import gleam/list
+import gleam/dict
 import gleam/erlang/process.{type Subject}
 import gleam/io
+import gleam/list
+import gleam/option
 import gleam/otp/actor
 
 pub fn main() -> Nil {
   let assert Ok(broker) =
-    actor.new([]) |> actor.on_message(handle_message) |> actor.start
+    actor.new(dict.new()) |> actor.on_message(handle_message) |> actor.start
   let subject = broker.data
 
   let sub_a = process.new_subject()
   let sub_b = process.new_subject()
 
-  process.send(subject, Subscribe(sub_a))
-  process.send(subject, Subscribe(sub_b))
+  process.send(subject, Subscribe(sub_a, "pokemon"))
+  process.send(subject, Subscribe(sub_b, "digimon"))
 
-  process.send(subject, Publish("Starmie"))
+  process.send(subject, Publish("Starmie", "pokemon"))
 
-  let res1 = process.receive(sub_a, 10)
+  case process.receive(sub_a, 10) {
+    Ok(msg) -> io.println("sub_a received: " <> msg)
+    Error(Nil) -> io.println("ERROR: sub_a missed the message")
+  }
 
-  case res1 {
-    Ok(msg) -> io.println("Received: " <> msg)
-    Error(Nil) -> io.println("Error receiving message.")
+  case process.receive(sub_b, 10) {
+    Ok(msg) -> io.println("ERROR: sub_b intercepted: " <> msg)
+    Error(Nil) -> io.println("sub_b ignored 'pokemon' channels")
+  }
+
+  process.send(subject, Publish("Agumon", "digimon"))
+
+  case process.receive(sub_b, 10) {
+    Ok(msg) -> io.println("sub_b received: " <> msg)
+    Error(Nil) -> io.println("ERROR: sub_b missed the message")
   }
 
   process.send(subject, Shutdown)
@@ -28,24 +40,35 @@ pub fn main() -> Nil {
 
 pub type Message(element) {
   Shutdown
-  Subscribe(message: Subject(element))
-  Publish(value: element)
+  Subscribe(message: Subject(element), channel: String)
+  Publish(value: element, channel: String)
 }
 
 fn handle_message(
-  subscribers: List(Subject(e)),
+  subscribers: dict.Dict(String, List(Subject(e))),
   message: Message(e),
-) -> actor.Next(List(Subject(e)), Message(e)) {
+) -> actor.Next(dict.Dict(String, List(Subject(e))), Message(e)) {
   case message {
     Shutdown -> actor.stop()
-    Subscribe(client) -> {
-      let new_client = [client, ..subscribers]
+    Subscribe(client, channel) -> {
+      let new_client =
+        dict.upsert(subscribers, channel, fn(maybe_list) {
+          case maybe_list {
+            option.None -> [client]
+            option.Some(list) -> [client, ..list]
+          }
+        })
       actor.continue(new_client)
     }
-    Publish(value) -> {
-      list.each(subscribers, fn(subscriber) {
-        process.send(subscriber, value)
-      })
+    Publish(value, channel) -> {
+      let x = dict.get(subscribers, channel)
+      case x {
+        Ok(subscribers) ->
+          list.each(subscribers, fn(subscriber) {
+            process.send(subscriber, value)
+          })
+        Error(_) -> Nil
+      }
       actor.continue(subscribers)
     }
   }
