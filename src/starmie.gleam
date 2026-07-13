@@ -35,12 +35,22 @@ pub fn main() -> Nil {
     Error(Nil) -> io.println("ERROR: sub_b missed the message")
   }
 
+  process.send(subject, Unsubscribe(sub_a, "pokemon"))
+
+  process.send(subject, Publish("Staryu", "pokemon"))
+
+  case process.receive(sub_a, 10) {
+    Ok(msg) -> io.println("ERROR: sub_a still receive: " <> msg)
+    Error(Nil) -> io.println("sub_a successfully unsubscribe")
+  }
+
   process.send(subject, Shutdown)
 }
 
 pub type Message(element) {
   Shutdown
   Subscribe(message: Subject(element), channel: String)
+  Unsubscribe(sub: Subject(element), channel: String)
   Publish(value: element, channel: String)
 }
 
@@ -59,6 +69,17 @@ fn handle_message(
           }
         })
       actor.continue(new_client)
+    }
+    Unsubscribe(client, channel) -> {
+      let x = dict.get(subscribers, channel)
+      case x {
+        Ok(sub_list) -> {
+          let y = list.filter(sub_list, fn(item) { item != client })
+          let new_subs = dict.insert(subscribers, channel, y)
+          actor.continue(new_subs)
+        }
+        Error(_) -> actor.continue(subscribers)
+      }
     }
     Publish(value, channel) -> {
       let x = dict.get(subscribers, channel)
