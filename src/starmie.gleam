@@ -77,7 +77,10 @@ fn handle_message(
       case channel_subscribers {
         Ok(sub_list) -> {
           let filtered_subs = list.filter(sub_list, fn(sub) { sub != client })
-          let updated_subscribers = dict.insert(subscribers, channel, filtered_subs)
+          let updated_subscribers = case filtered_subs {
+            [] -> dict.delete(subscribers, channel)
+            _ -> dict.insert(subscribers, channel, filtered_subs)
+          }
           actor.continue(updated_subscribers)
         }
         Error(_) -> actor.continue(subscribers)
@@ -88,9 +91,7 @@ fn handle_message(
       let channel_subscribers = dict.get(subscribers, channel)
       case channel_subscribers {
         Ok(sub_list) ->
-          list.each(sub_list, fn(subscriber) {
-            process.send(subscriber, value)
-          })
+          list.each(sub_list, fn(subscriber) { process.send(subscriber, value) })
         Error(_) -> Nil
       }
       actor.continue(subscribers)
