@@ -88,13 +88,25 @@ fn handle_message(
     }
 
     Publish(value, channel) -> {
-      let channel_subscribers = dict.get(subscribers, channel)
-      case channel_subscribers {
-        Ok(sub_list) ->
-          list.each(sub_list, fn(subscriber) { process.send(subscriber, value) })
-        Error(_) -> Nil
+      case dict.get(subscribers, channel) {
+        Ok(sub_list) -> {
+          let alive =
+            list.filter(sub_list, fn(sub) {
+              case process.subject_owner(sub) {
+                Ok(pid) -> process.is_alive(pid)
+                Error(Nil) -> False
+              }
+            })
+
+          list.each(alive, process.send(_, value))
+
+          case alive {
+            [] -> actor.continue(dict.delete(subscribers, channel))
+            _ -> actor.continue(dict.insert(subscribers, channel, alive))
+          }
+        }
+        Error(_) -> actor.continue(subscribers)
       }
-      actor.continue(subscribers)
     }
   }
 }
