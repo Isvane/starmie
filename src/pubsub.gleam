@@ -3,6 +3,8 @@ import gleam/erlang/process.{type Subject}
 import gleam/list
 import gleam/option
 import gleam/otp/actor
+import gleam/otp/static_supervisor.{type Supervisor} as supervisor
+import gleam/otp/supervision
 
 pub opaque type Message(element) {
   Shutdown
@@ -68,11 +70,18 @@ fn handle_message(
   }
 }
 
-pub fn start() {
-  actor.new(dict.new()) |> actor.on_message(handle_message) |> actor.start()
+pub fn start(name: process.Name(Message(e))) {
+  actor.new(dict.new())
+  |> actor.named(name)
+  |> actor.on_message(handle_message)
+  |> actor.start()
 }
 
-pub fn subscribe(pubsub: Subject(Message(e)), client: Subject(e), channel: String) {
+pub fn subscribe(
+  pubsub: Subject(Message(e)),
+  client: Subject(e),
+  channel: String,
+) {
   process.send(pubsub, Subscribe(client, channel))
 }
 
@@ -80,10 +89,27 @@ pub fn publish(pubsub: Subject(Message(e)), value: e, channel: String) {
   process.send(pubsub, Publish(value, channel))
 }
 
-pub fn unsubscribe(pubsub: Subject(Message(e)), client: Subject(e), channel: String) {
+pub fn unsubscribe(
+  pubsub: Subject(Message(e)),
+  client: Subject(e),
+  channel: String,
+) {
   process.send(pubsub, Unsubscribe(client, channel))
 }
 
 pub fn shutdown(pubsub: Subject(Message(e))) {
   process.send(pubsub, Shutdown)
+}
+
+pub fn pubsub_name() -> process.Name(Message(e)) {
+  process.new_name("global")
+}
+
+pub fn start_supervisor(
+  name: process.Name(Message(e)),
+) -> actor.StartResult(Supervisor) {
+  supervisor.new(supervisor.OneForOne)
+  |> supervisor.restart_tolerance(intensity: 3, period: 5)
+  |> supervisor.add(supervision.worker(fn() { start(name) }))
+  |> supervisor.start()
 }
