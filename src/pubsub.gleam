@@ -109,7 +109,14 @@ pub fn start_supervisor(
   name: process.Name(Message(e)),
 ) -> actor.StartResult(Supervisor) {
   supervisor.new(supervisor.OneForOne)
+  |> supervisor.auto_shutdown(supervisor.AllSignificant)
   |> supervisor.restart_tolerance(intensity: 3, period: 5)
-  |> supervisor.add(supervision.worker(fn() { start(name) }))
+  |> supervisor.add(
+    supervision.worker(fn() { start(name) })
+    |> supervision.restart(supervision.Transient)
+    // This might be a "bad practice", but I'm curious
+    |> supervision.significant(True),
+    // This too
+  )
   |> supervisor.start()
 }

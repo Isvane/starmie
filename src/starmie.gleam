@@ -3,6 +3,9 @@ import gleam/io
 import pubsub
 
 pub fn main() -> Nil {
+  // This feels illegal but eh...
+  process.trap_exits(True)
+
   let name = process.new_name("global")
 
   let assert Ok(_) = pubsub.start_supervisor(name)
@@ -38,4 +41,7 @@ pub fn main() -> Nil {
     Ok(msg) -> io.println("ERROR: sub_a intercepted: " <> msg)
     Error(Nil) -> io.println("SUCCESS: sub_a ignored 'digimon' channel!")
   }
+
+  pubsub.shutdown(subject)
+  process.sleep(50)
 }
