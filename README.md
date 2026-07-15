@@ -22,6 +22,8 @@ import gleam/io
 import pubsub
 
 pub fn main() -> Nil {
+  process.trap_exits(True)
+
   let name = process.new_name("global")
   let assert Ok(_) = pubsub.start_supervisor(name)
 
@@ -29,23 +31,34 @@ pub fn main() -> Nil {
   let sub_a = process.new_subject()
   let sub_b = process.new_subject()
 
-  // Hook up the subscribers to their channels
+  // Hook up the subscribers to their respective channels
   pubsub.subscribe(subject, sub_a, "pokemon")
   pubsub.subscribe(subject, sub_b, "digimon")
 
+  // Combine both subscriber subjects into a single, unified Selector
+  let selector =
+    process.new_selector()
+    |> process.select(sub_a)
+    |> process.select(sub_b)
+
   // Drop a message into the pokemon channel
   pubsub.publish(subject, "Staryu evolved into Starmie!", "pokemon")
+  // Do the same for digimon channel
+  pubsub.publish(subject, "Staryu evolved into Starmie!", "pokemon")
 
-  // sub_a catches it!
-  case process.receive(sub_a, 10) {
-    Ok(msg) -> io.println("SUCCESS: sub_a received: " <> msg)
-    Error(Nil) -> io.println("ERROR: sub_a missed the message")
+  // Wait concurrently on both subjects. The first arriving message unblocks us immediately
+  case process.selector_receive(selector, 50) {
+    Ok(msg) -> io.println(msg)
+    Error(Nil) -> io.println("Timed out")
   }
 
-  // sub_b correctly ignores it.
-  case process.receive(sub_b, 10) {
-    Ok(msg) -> io.println("ERROR: sub_b intercepted: " <> msg)
-    Error(Nil) -> io.println("SUCCESS: sub_b ignored 'pokemon' channel!")
-  }
+  pubsub.shutdown(subject)
+  process.sleep(50)
 }
+```
+
+The output.
+```
+Staryu evolved into Starmie!
+Koromon digivolve to Agumon!
 ```
