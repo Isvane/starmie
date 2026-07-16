@@ -43,8 +43,6 @@ pub fn main() -> Nil {
 
   // Drop a message into the pokemon channel
   pubsub.publish(subject, "Staryu evolved into Starmie!", "pokemon")
-  // Do the same for digimon channel
-  pubsub.publish(subject, "Staryu evolved into Starmie!", "pokemon")
 
   // Wait concurrently on both subjects. The first arriving message unblocks us immediately
   case process.selector_receive(selector, 50) {
@@ -55,10 +53,4 @@ pub fn main() -> Nil {
   pubsub.shutdown(subject)
   process.sleep(50)
 }
-```
-
-The output.
-```
-Staryu evolved into Starmie!
-Koromon digivolve to Agumon!
 ```
