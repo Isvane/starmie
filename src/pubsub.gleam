@@ -8,60 +8,88 @@ import gleam/otp/supervision
 
 pub opaque type Message(element) {
   Shutdown
-  Subscribe(message: Subject(element), channel: String)
-  Unsubscribe(sub: Subject(element), channel: String)
+  Subscribe(client: Subject(element), channel: String)
+  Unsubscribe(client: Subject(element), channel: String)
   Publish(value: element, channel: String)
+  SubscriberDown(down: process.Down)
+}
+
+pub type Subscriber(element) {
+  Subscriber(subject: Subject(element), monitor: process.Monitor)
 }
 
 fn handle_message(
-  subscribers: dict.Dict(String, List(Subject(e))),
+  subscribers: dict.Dict(String, List(Subscriber(e))),
   message: Message(e),
-) -> actor.Next(dict.Dict(String, List(Subject(e))), Message(e)) {
+) -> actor.Next(dict.Dict(String, List(Subscriber(e))), Message(e)) {
   case message {
     Shutdown -> actor.stop()
 
     Subscribe(client, channel) -> {
+      let monitor = case process.subject_owner(client) {
+        Ok(pid) -> process.monitor(pid)
+        Error(_) -> {
+          panic
+          // DIE!
+        }
+      }
+
+      let new_sub = Subscriber(subject: client, monitor: monitor)
+
       let updated_subscribers =
         dict.upsert(subscribers, channel, fn(maybe_list) {
           case maybe_list {
-            option.None -> [client]
-            option.Some(existing_subs) -> [client, ..existing_subs]
+            option.None -> [new_sub]
+            option.Some(existing) -> [new_sub, ..existing]
           }
         })
+
       actor.continue(updated_subscribers)
     }
 
     Unsubscribe(client, channel) -> {
-      let channel_subscribers = dict.get(subscribers, channel)
-      case channel_subscribers {
+      let updated = case dict.get(subscribers, channel) {
         Ok(sub_list) -> {
-          let filtered_subs = list.filter(sub_list, fn(sub) { sub != client })
-          let updated_subscribers = case filtered_subs {
+          let to_remove = list.filter(sub_list, fn(s) { s.subject == client })
+
+          list.each(to_remove, fn(s) { process.demonitor_process(s.monitor) })
+
+          let filtered = list.filter(sub_list, fn(s) { s.subject != client })
+
+          case filtered {
             [] -> dict.delete(subscribers, channel)
-            _ -> dict.insert(subscribers, channel, filtered_subs)
+            _ -> dict.insert(subscribers, channel, filtered)
           }
-          actor.continue(updated_subscribers)
         }
-        Error(_) -> actor.continue(subscribers)
+        Error(_) -> subscribers
       }
+      actor.continue(updated)
+    }
+
+    SubscriberDown(down) -> {
+      let cleaned =
+        dict.map_values(subscribers, fn(_channel, subs) {
+          list.filter(subs, fn(s) {
+            case down {
+              process.ProcessDown(monitor: m, ..) if m == s.monitor -> False
+              _ -> True
+            }
+          })
+        })
+
+      let final = dict.filter(cleaned, fn(_k, v) { !list.is_empty(v) })
+
+      actor.continue(final)
     }
 
     Publish(value, channel) -> {
       case dict.get(subscribers, channel) {
         Ok(sub_list) -> {
-          let alive =
-            list.filter(sub_list, fn(sub) {
-              case process.subject_owner(sub) {
-                Ok(pid) -> process.is_alive(pid)
-                Error(Nil) -> False
-              }
-            })
+          list.each(sub_list, fn(s) { process.send(s.subject, value) })
 
-          list.each(alive, process.send(_, value))
-
-          case alive {
+          case sub_list {
             [] -> actor.continue(dict.delete(subscribers, channel))
-            _ -> actor.continue(dict.insert(subscribers, channel, alive))
+            _ -> actor.continue(subscribers)
           }
         }
         Error(_) -> actor.continue(subscribers)
@@ -114,9 +142,7 @@ pub fn start_supervisor(
   |> supervisor.add(
     supervision.worker(fn() { start(name) })
     |> supervision.restart(supervision.Transient)
-    // This might be a "bad practice", but I'm curious
     |> supervision.significant(True),
-    // This too
   )
   |> supervisor.start()
 }
