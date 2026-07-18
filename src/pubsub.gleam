@@ -26,25 +26,23 @@ fn handle_message(
     Shutdown -> actor.stop()
 
     Subscribe(client, channel) -> {
-      let monitor = case process.subject_owner(client) {
-        Ok(pid) -> process.monitor(pid)
-        Error(_) -> {
-          panic
-          // DIE!
+      case process.subject_owner(client) {
+        Ok(pid) -> {
+          let monitor = process.monitor(pid)
+          let new_sub = Subscriber(subject: client, monitor: monitor)
+
+          let updated_subscribers =
+            dict.upsert(subscribers, channel, fn(maybe_list) {
+              case maybe_list {
+                option.None -> [new_sub]
+                option.Some(existing) -> [new_sub, ..existing]
+              }
+            })
+
+          actor.continue(updated_subscribers)
         }
+        Error(_) -> actor.continue(subscribers)
       }
-
-      let new_sub = Subscriber(subject: client, monitor: monitor)
-
-      let updated_subscribers =
-        dict.upsert(subscribers, channel, fn(maybe_list) {
-          case maybe_list {
-            option.None -> [new_sub]
-            option.Some(existing) -> [new_sub, ..existing]
-          }
-        })
-
-      actor.continue(updated_subscribers)
     }
 
     Unsubscribe(client, channel) -> {
