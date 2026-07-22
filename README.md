@@ -1,4 +1,4 @@
-# 🌟 Starmie
+# Starmie
 
 Starmie is a lightweight, type-safe Publish-Subscribe (PubSub) actor pattern implementation written in Gleam. It bridges Erlang's OTP actor system with a channel-based broadcasting model, complete with process health tracking and automated supervisor setups. Built as my first ever Gleam project.
 
@@ -6,7 +6,6 @@ Starmie is a lightweight, type-safe Publish-Subscribe (PubSub) actor pattern imp
 
 ## Running the Code
 
-Since this is a standalone learning project, you can run the validation suite directly using the Gleam CLI.
 ```console
 gleam run
 ```
